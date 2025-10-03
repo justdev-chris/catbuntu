@@ -1,1 +1,66 @@
+name: Build Catbuntu Terminal ISO
 
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap xorriso grub-pc-bin grub-efi-amd64-bin mtools
+
+      - name: Prepare Root Filesystem
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/catbuntu_iso/rootfs
+          sudo debootstrap --arch=amd64 bullseye $GITHUB_WORKSPACE/catbuntu_iso/rootfs http://deb.debian.org/debian
+
+      - name: Setup Networking
+        run: |
+          echo "auto lo
+          iface lo inet loopback
+
+          auto eth0
+          iface eth0 inet dhcp" | sudo tee $GITHUB_WORKSPACE/catbuntu_iso/rootfs/etc/network/interfaces
+
+      - name: Create Bootable ISO Structure
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/catbuntu_iso/iso/boot/grub
+          cp -r $GITHUB_WORKSPACE/catbuntu_iso/rootfs/* $GITHUB_WORKSPACE/catbuntu_iso/iso/
+
+      - name: Create GRUB config
+        run: |
+          echo 'set default=0
+          set timeout=5
+
+          menuentry "Catbuntu Terminal" {
+            linux /boot/vmlinuz root=/dev/sr0 ro quiet
+            initrd /boot/initrd.img
+          }' | sudo tee $GITHUB_WORKSPACE/catbuntu_iso/iso/boot/grub/grub.cfg
+
+      - name: Build ISO
+        run: |
+          xorriso -as mkisofs \
+            -iso-level 3 \
+            -o $GITHUB_WORKSPACE/catbuntu_terminal.iso \
+            -full-iso9660-filenames \
+            -volid "CATBUNTU" \
+            -boot-load-size 4 \
+            -boot-info-table \
+            -b boot/grub/i386-pc/eltorito.img \
+            -no-emul-boot \
+            $GITHUB_WORKSPACE/catbuntu_iso/iso
+
+      - name: Upload ISO Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: catbuntu-terminal.iso
+          path: $GITHUB_WORKSPACE/catbuntu_terminal.iso
