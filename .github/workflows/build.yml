@@ -1,55 +1,62 @@
-name: catbuntu
+name: catbuntu 
 
 on:
   workflow_dispatch:
 
 jobs:
-  build_iso:
+  build-iso:
     runs-on: ubuntu-latest
+
     steps:
+      # 1. Checkout your repo
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
+      # 2. Install required tools
+      - name: Install ISO build tools
         run: |
-          sudo apt update
-          sudo apt install -y xorriso isolinux syslinux-utils rsync debootstrap
+          sudo apt-get update
+          sudo apt-get install -y xorriso debootstrap isolinux syslinux-utils
 
-      - name: Prepare root filesystem
+      # 3. Setup root filesystem
+      - name: Bootstrap minimal Debian rootfs
         run: |
-          mkdir -p rootfs
-          # Use debootstrap for minimal Debian base
-          sudo debootstrap --arch=amd64 bullseye rootfs http://deb.debian.org/debian
+          sudo debootstrap --variant=minbase bullseye rootfs http://deb.debian.org/debian/
+          sudo chroot rootfs /bin/bash -c "apt-get update && apt-get install -y sudo wget net-tools iproute2"
 
+      # 4. Add isolinux folder & config
+      - name: Add isolinux config
+        run: |
+          mkdir -p iso/isolinux
+          echo "UI menu.c32
+          PROMPT 0
+          MENU TITLE Catbuntu
+          TIMEOUT 50
+          LABEL linux
+              KERNEL /boot/vmlinuz
+              APPEND initrd=/boot/initrd.img boot=live
+          " > iso/isolinux/isolinux.cfg
+
+      # 5. Copy rootfs into ISO directory
       - name: Prepare ISO structure
         run: |
-          mkdir -p iso/{boot/isolinux,live}
-          sudo rsync -a rootfs/ iso/live/
-          # Copy isolinux bootloader
-          sudo cp /usr/lib/ISOLINUX/isolinux.bin iso/boot/isolinux/
-          sudo cp /usr/lib/syslinux/modules/bios/* iso/boot/isolinux/
-          # Minimal isolinux.cfg
-          echo "UI menu.c32
-PROMPT 0
-MENU TITLE Catbuntu
-TIMEOUT 50
-LABEL boot
-  MENU LABEL Boot Catbuntu
-  KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd.img" | sudo tee iso/boot/isolinux/isolinux.cfg
+          mkdir -p iso/rootfs
+          sudo cp -r rootfs/* iso/rootfs/
 
+      # 6. Build the ISO
       - name: Build ISO
         run: |
-          sudo xorriso -as mkisofs \
+          xorriso -as mkisofs \
             -iso-level 3 \
             -o catbuntu.iso \
-            -full-iso9660-filenames \
-            -volid "CATBUNTU" \
-            -eltorito-boot boot/isolinux/isolinux.bin \
-            -eltorito-catalog boot/isolinux/boot.cat \
-            -no-emul-boot -boot-load-size 4 -boot-info-table \
+            -b isolinux/isolinux.bin \
+            -c isolinux/boot.cat \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
             iso/
 
+      # 7. Upload the ISO as artifact
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
