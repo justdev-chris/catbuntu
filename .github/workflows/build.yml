@@ -12,24 +12,31 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debootstrap squashfs-tools xorriso isolinux syslinux-utils mtools
+          sudo apt update
+          sudo apt install -y xorriso isolinux syslinux-utils rsync debootstrap
 
-      - name: Create minimal rootfs
+      - name: Prepare root filesystem
         run: |
-          sudo debootstrap --variant=minbase stable rootfs http://deb.debian.org/debian
-
-      - name: Fix systemd / networking basics
-        run: |
-          sudo chroot rootfs /bin/bash -c "apt-get update && apt-get install -y --allow-downgrades --allow-remove-essential --fix-broken systemd ifupdown net-tools iproute2 iputils-ping"
+          mkdir -p rootfs
+          # Use debootstrap for minimal Debian base
+          sudo debootstrap --arch=amd64 bullseye rootfs http://deb.debian.org/debian
 
       - name: Prepare ISO structure
         run: |
-          mkdir -p iso/{boot,live}
+          mkdir -p iso/{boot/isolinux,live}
           sudo rsync -a rootfs/ iso/live/
-          mkdir -p iso/boot/isolinux
+          # Copy isolinux bootloader
           sudo cp /usr/lib/ISOLINUX/isolinux.bin iso/boot/isolinux/
           sudo cp /usr/lib/syslinux/modules/bios/* iso/boot/isolinux/
+          # Minimal isolinux.cfg
+          echo "UI menu.c32
+PROMPT 0
+MENU TITLE Catbuntu
+TIMEOUT 50
+LABEL boot
+  MENU LABEL Boot Catbuntu
+  KERNEL /live/vmlinuz
+  APPEND initrd=/live/initrd.img" | sudo tee iso/boot/isolinux/isolinux.cfg
 
       - name: Build ISO
         run: |
@@ -39,7 +46,8 @@ jobs:
             -full-iso9660-filenames \
             -volid "CATBUNTU" \
             -eltorito-boot boot/isolinux/isolinux.bin \
-            -boot-load-size 4 -boot-info-table \
+            -eltorito-catalog boot/isolinux/boot.cat \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
             iso/
 
       - name: Upload ISO
