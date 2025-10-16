@@ -1,5 +1,5 @@
 # .github/workflows/catbuntu.yml
-name: Build Catbuntu Terminal ISO
+name: Build Catbuntu From Scratch
 
 on:
   workflow_dispatch:
@@ -7,41 +7,45 @@ on:
     branches: [main]
 
 jobs:
-  build-minimal-iso:
+  build-from-scratch:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Install ISO tools
+    - name: Install build tools
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          genisoimage \
+          debootstrap \
           squashfs-tools \
           xorriso \
-          git \
-          p7zip-full \
-          wget \
-          debootstrap
+          grub-pc-bin \
+          grub-efi-amd64-bin \
+          mtools \
+          dosfstools \
+          linux-image-generic \
+          git
           
-    - name: Build minimal Ubuntu base
+    - name: Build minimal root filesystem
       run: |
-        # Create minimal Ubuntu filesystem
-        sudo debootstrap jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
+        # Create minimal Ubuntu base
+        sudo debootstrap --variant=minbase jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
         
-        # Chroot and install terminal-only packages
+    - name: Install essential packages
+      run: |
         sudo chroot ./catbuntu-root /bin/bash << 'EOL'
+        # Mount proc for package management
+        mount -t proc proc /proc
+        
+        # Install absolute minimum + our cat tools
         apt-get update
-        apt-get install -y \
+        apt-get install -y --no-install-recommends \
           linux-image-generic \
           systemd-sysv \
           sudo \
           network-manager \
           curl \
           wget \
-          vim \
+          vim-tiny \
           git \
           fish \
           tmux \
@@ -55,47 +59,69 @@ jobs:
           fortune-mod \
           figlet \
           lolcat
-          
+        
         # Create user
         useradd -m -s /usr/bin/fish catuser
         echo "catuser:password" | chpasswd
         usermod -aG sudo catuser
-        
-        # Set hostname
         echo "catbuntu" > /etc/hostname
         
-        # Install bootloader
-        apt-get install -y grub-pc
+        # Set up auto-login on tty1
+        mkdir -p /etc/systemd/system/getty@tty1.service.d/
+        cat > /etc/systemd/system/getty@tty1.service.d/override.conf << 'EOF2'
+        [Service]
+        ExecStart=
+        ExecStart=-/sbin/agetty --autologin catuser --noclear %I $TERM
+        EOF2
+        
+        # Create welcome script
+        cat > /home/catuser/.bashrc << 'EOF2'
+        # Catbuntu Welcome
+        if [ "$(tty)" = "/dev/tty1" ]; then
+          clear
+          echo "🐱 WELCOME TO CATBUNTU! 🐱" | lolcat
+          echo "The purr-fect terminal-only distro!" | cowsay -f cat | lolcat
+          echo ""
+          echo "Try: neofetch, cmatrix, nyancat, oneko, sl"
+          echo "Shell: fish (type 'fish' to start)"
+          echo ""
+          exec fish
+        fi
+        EOF2
         
         # Clean up
         apt-get clean
         rm -rf /var/lib/apt/lists/*
+        umount /proc
+        EOL
+        
+    - name: Build initramfs and kernel setup
+      run: |
+        sudo chroot ./catbuntu-root /bin/bash << 'EOL'
+        # Update initramfs
+        update-initramfs -c -k $(ls /boot/vmlinuz-* | head -1 | sed 's|/boot/vmlinuz-||')
         EOL
         
     - name: Create bootable ISO structure
       run: |
         mkdir -p iso/boot/grub
-        cp -r catbuntu-root/boot/vmlinuz* iso/boot/
-        cp -r catbuntu-root/boot/initrd* iso/boot/
+        # Copy kernel and initramfs
+        sudo cp catbuntu-root/boot/vmlinuz-* iso/boot/vmlinuz
+        sudo cp catbuntu-root/boot/initrd.img-* iso/boot/initrd.img
+        
+        # Copy the entire system
+        sudo cp -r catbuntu-root/* iso/ || true
         
         # Create GRUB config
         cat > iso/boot/grub/grub.cfg << 'EOF'
         set timeout=5
         set default=0
         
-        menuentry "Catbuntu Terminal" {
-            linux /boot/vmlinuz boot=live quiet splash
-            initrd /boot/initrd.img
-        }
-        
-        menuentry "Catbuntu Terminal (Safe Mode)" {
-            linux /boot/vmlinuz boot=live quiet splash nomodeset
+        menuentry "Catbuntu From Scratch" {
+            linux /boot/vmlinuz boot=live root=/dev/sr0 quiet splash
             initrd /boot/initrd.img
         }
         EOF
-        
-        # Copy the entire system
-        sudo cp -r catbuntu-root/* iso/ || true
         
     - name: Create ISO
       run: |
@@ -106,40 +132,22 @@ jobs:
           -eltorito-boot boot/grub/grub.cfg \
           -no-emul-boot -boot-load-size 4 -boot-info-table \
           -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
-          -output catbuntu-terminal.iso \
+          -output catbuntu-from-scratch.iso \
           iso/
           
-    - name: Create cute first-boot script
-      run: |
-        # This runs on first boot
-        sudo mkdir -p catbuntu-root/etc/profile.d
-        sudo cat > catbuntu-root/etc/profile.d/catbuntu-welcome.sh << 'EOF'
-        #!/bin/bash
-        if [ "$0" = "/bin/bash" ] || [ "$0" = "/bin/fish" ]; then
-          echo "🐱 WELCOME TO CATBUNTU! 🐱" | lolcat
-          echo "The purr-fect terminal-only distro!" | cowsay -f cat | lolcat
-          echo ""
-          echo "Try: neofetch, cmatrix, nyancat, oneko, sl"
-          echo "Shell: fish (type 'fish' if in bash)"
-          echo ""
-        fi
-        EOF
-        sudo chmod +x catbuntu-root/etc/profile.d/catbuntu-welcome.sh
-        
     - name: Upload Catbuntu ISO
       uses: actions/upload-artifact@v4
       with:
-        name: catbuntu-terminal
-        path: catbuntu-terminal.iso
+        name: catbuntu-from-scratch
+        path: catbuntu-from-scratch.iso
         retention-days: 3
         
-    - name: Show ISO info
+    - name: Build success message
       run: |
-        echo "🎉 CATBUNTU TERMINAL ISO BUILT!"
-        echo "🐾 Features:"
-        echo "  - Minimal Ubuntu base"
-        echo "  - Fish shell (default)"
-        echo "  - Cat-themed fun commands"
-        echo "  - Neofetch, cmatrix, nyancat, oneko"
-        echo "  - Git, curl, vim pre-installed"
+        echo "🎉 CATBUNTU FROM SCRATCH BUILT!"
+        echo "🐾 This is a REAL custom distro:"
+        echo "  - Built from debootstrap (no base ISO)"
+        echo "  - Custom kernel + initramfs"
+        echo "  - Auto-login to fish shell"
+        echo "  - Pure minimal system + cat toys"
         echo "📥 Download from Actions artifacts!"
