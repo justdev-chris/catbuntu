@@ -108,12 +108,17 @@ jobs:
         # Create ISO directory structure
         mkdir -p iso/boot/grub
         
-        # Find and copy kernel files
+        # Find and copy kernel files (with proper permissions)
         KERNEL_VERSION=$(sudo ls catbuntu-root/boot/vmlinuz-* | head -1 | xargs basename | sed 's/vmlinuz-//')
         echo "Using kernel: $KERNEL_VERSION"
         
+        # Copy files with user ownership
         sudo cp catbuntu-root/boot/vmlinuz-$KERNEL_VERSION iso/boot/vmlinuz
         sudo cp catbuntu-root/boot/initrd.img-$KERNEL_VERSION iso/boot/initrd.img
+        
+        # Change ownership to current user
+        sudo chown $USER:$USER iso/boot/vmlinuz
+        sudo chown $USER:$USER iso/boot/initrd.img
         
         # Create GRUB config
         cat > iso/boot/grub/grub.cfg << 'EOF'
@@ -126,20 +131,13 @@ jobs:
         }
         EOF
         
-        # Create a simple init script for live boot
-        cat > iso/init.sh << 'EOF'
-        #!/bin/sh
-        echo "Catbuntu Live Boot"
-        /bin/bash
-        EOF
-        chmod +x iso/init.sh
-        
     - name: Create squashfs and ISO
       run: |
-        # Create compressed filesystem
+        # Create compressed filesystem (with user permissions)
         sudo mksquashfs catbuntu-root iso/filesystem.squashfs -comp xz
+        sudo chown $USER:$USER iso/filesystem.squashfs
         
-        # Create ISO with proper paths
+        # Create ISO with proper file access
         xorriso -as mkisofs \
           -iso-level 3 \
           -full-iso9660-filenames \
@@ -160,10 +158,10 @@ jobs:
     - name: Build success message
       run: |
         echo "🎉 CATBUNTU FROM SCRATCH BUILT!"
-        echo "🐾 Real custom distro features:"
+        echo "📦 Final ISO size: $(ls -lh catbuntu-from-scratch.iso | awk '{print $5}')"
+        echo "🐾 Features:"
         echo "  - Built from debootstrap"
-        echo "  - Custom kernel installed"
+        echo "  - Custom kernel"
         echo "  - Auto-login to fish shell"
-        echo "  - Pure minimal system"
+        echo "  - All cat-themed commands"
         echo "📥 Download from Actions artifacts!"
-        ls -lh catbuntu-from-scratch.iso
