@@ -105,6 +105,7 @@ jobs:
         
     - name: Create bootable ISO structure
       run: |
+        # Create ISO directory structure
         mkdir -p iso/boot/grub
         
         # Find and copy kernel files
@@ -113,9 +114,6 @@ jobs:
         
         sudo cp catbuntu-root/boot/vmlinuz-$KERNEL_VERSION iso/boot/vmlinuz
         sudo cp catbuntu-root/boot/initrd.img-$KERNEL_VERSION iso/boot/initrd.img
-        
-        # Copy the entire system
-        sudo cp -r catbuntu-root/* iso/ || true
         
         # Create GRUB config
         cat > iso/boot/grub/grub.cfg << 'EOF'
@@ -128,8 +126,20 @@ jobs:
         }
         EOF
         
-    - name: Create ISO
+        # Create a simple init script for live boot
+        cat > iso/init.sh << 'EOF'
+        #!/bin/sh
+        echo "Catbuntu Live Boot"
+        /bin/bash
+        EOF
+        chmod +x iso/init.sh
+        
+    - name: Create squashfs and ISO
       run: |
+        # Create compressed filesystem
+        sudo mksquashfs catbuntu-root iso/filesystem.squashfs -comp xz
+        
+        # Create ISO with proper paths
         xorriso -as mkisofs \
           -iso-level 3 \
           -full-iso9660-filenames \
@@ -152,7 +162,8 @@ jobs:
         echo "🎉 CATBUNTU FROM SCRATCH BUILT!"
         echo "🐾 Real custom distro features:"
         echo "  - Built from debootstrap"
-        echo "  - Custom kernel: $(sudo ls catbuntu-root/boot/vmlinuz-* | head -1 | xargs basename)"
+        echo "  - Custom kernel installed"
         echo "  - Auto-login to fish shell"
         echo "  - Pure minimal system"
         echo "📥 Download from Actions artifacts!"
+        ls -lh catbuntu-from-scratch.iso
