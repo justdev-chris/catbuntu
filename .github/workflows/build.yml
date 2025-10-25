@@ -46,58 +46,38 @@ jobs:
         mount -t sysfs sys /sys || true
         mount -t devtmpfs dev /dev || true
         
-        # FIX: Configure repositories FIRST
+        # Configure repositories
         echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list
         echo "deb http://archive.ubuntu.com/ubuntu jammy-updates main universe" >> /etc/apt/sources.list
         
-        # FIX: Update package lists
         apt-get update
+        apt-get install -y --no-install-recommends sudo curl wget software-properties-common
         
-        # FIX: Install essentials first
-        apt-get install -y --no-install-recommends \
-          sudo \
-          software-properties-common \
-          curl \
-          wget
-        
-        # FIX: Add universe repo properly and update
         add-apt-repository universe
         apt-get update
         
-        # NOW install the fun packages
+        # Install MINIMAL packages for now
         apt-get install -y --no-install-recommends \
           network-manager \
-          vim-tiny \
-          git \
-          fish \
-          tmux \
-          htop \
-          neofetch \
-          cmatrix \
-          nyancat \
-          oneko \
-          sl \
-          cowsay \
-          fortune-mod \
-          figlet \
-          lolcat
+          vim-tiny
         
-        # Create user
-        useradd -m -s /usr/bin/fish catuser
+        # Create user (but NO auto-login)
+        useradd -m -s /bin/bash catuser
         echo "catuser:password" | chpasswd
         usermod -aG sudo catuser
         echo "catbuntu" > /etc/hostname
         
-        # REMOVED AUTO-LOGIN - just normal login now
+        # FIX INITRAMFS - add critical modules
+        echo "squashfs" >> /etc/initramfs-tools/modules
+        echo "overlay" >> /etc/initramfs-tools/modules
+        echo "iso9660" >> /etc/initramfs-tools/modules
+        echo "loop" >> /etc/initramfs-tools/modules
         
-        # Update initramfs
         update-initramfs -u -k all
         
-        # Clean up
         apt-get clean
         rm -rf /var/lib/apt/lists/*
         
-        # Unmount
         umount /proc || true
         umount /sys || true
         umount /dev || true
@@ -152,9 +132,5 @@ jobs:
       run: |
         echo "🎉 CATBUNTU FROM SCRATCH BUILT SUCCESSFULLY! 🐾"
         echo "📦 Final ISO size: $(ls -lh catbuntu-from-scratch.iso | awk '{print $5}')"
-        echo "🐱 Features:"
-        echo "  - Built from debootstrap"
-        echo "  - Custom kernel"
-        echo "  - All cat-themed commands"
-        echo "  - Login: catuser / password"
+        echo "🐱 Minimal test build - login: catuser / password"
         echo "📥 Download from Actions artifacts!"
