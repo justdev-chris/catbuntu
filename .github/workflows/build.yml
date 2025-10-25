@@ -36,7 +36,7 @@ jobs:
         # Create minimal Ubuntu base WITH kernel
         sudo debootstrap --include=linux-image-generic,initramfs-tools,systemd-sysv jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
         
-    - name: Setup system and install cat tools
+    - name: Setup system
       run: |
         set -e
         sudo chroot ./catbuntu-root /bin/bash << 'EOL'
@@ -46,34 +46,30 @@ jobs:
         mount -t sysfs sys /sys || true
         mount -t devtmpfs dev /dev || true
         
-        # Configure repositories
-        echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list
-        echo "deb http://archive.ubuntu.com/ubuntu jammy-updates main universe" >> /etc/apt/sources.list
+        # DIRECT repo setup - no add-apt-repository
+        cat > /etc/apt/sources.list << 'EOF2'
+        deb http://archive.ubuntu.com/ubuntu jammy main universe multiverse restricted
+        deb http://archive.ubuntu.com/ubuntu jammy-updates main universe multiverse restricted
+        deb http://archive.ubuntu.com/ubuntu jammy-security main universe multiverse restricted
+        EOF2
         
+        # Update and install bare minimum
         apt-get update
-        apt-get install -y --no-install-recommends sudo curl wget software-properties-common
+        apt-get install -y sudo
         
-        add-apt-repository universe
-        apt-get update
-        
-        # Install MINIMAL packages for now
-        apt-get install -y --no-install-recommends \
-          network-manager \
-          vim-tiny
-        
-        # Create user (but NO auto-login)
-        useradd -m -s /bin/bash catuser
-        echo "catuser:password" | chpasswd
-        usermod -aG sudo catuser
-        echo "catbuntu" > /etc/hostname
-        
-        # FIX INITRAMFS - add critical modules
+        # FIX INITRAMFS - critical modules
         echo "squashfs" >> /etc/initramfs-tools/modules
         echo "overlay" >> /etc/initramfs-tools/modules
         echo "iso9660" >> /etc/initramfs-tools/modules
         echo "loop" >> /etc/initramfs-tools/modules
         
         update-initramfs -u -k all
+        
+        # Create user
+        useradd -m -s /bin/bash catuser
+        echo "catuser:password" | chpasswd
+        usermod -aG sudo catuser
+        echo "catbuntu" > /etc/hostname
         
         apt-get clean
         rm -rf /var/lib/apt/lists/*
@@ -86,21 +82,17 @@ jobs:
     - name: Create bootable ISO structure
       run: |
         set -e
-        # Create ISO directory structure
         mkdir -p iso/boot/grub
         mkdir -p iso/live
         
-        # Find and copy kernel files
         KERNEL_VERSION=$(sudo ls catbuntu-root/boot/vmlinuz-* | head -1 | xargs basename | sed 's/vmlinuz-//')
         echo "Using kernel: $KERNEL_VERSION"
         
-        # Copy files with proper ownership
         sudo cp catbuntu-root/boot/vmlinuz-$KERNEL_VERSION iso/boot/vmlinuz
         sudo cp catbuntu-root/boot/initrd.img-$KERNEL_VERSION iso/boot/initrd.img
         sudo chown $USER:$USER iso/boot/vmlinuz
         sudo chown $USER:$USER iso/boot/initrd.img
         
-        # Create GRUB config for LIVE boot
         cat > iso/boot/grub/grub.cfg << 'EOF'
         set timeout=5
         set default=0
@@ -114,11 +106,8 @@ jobs:
     - name: Create squashfs and ISO
       run: |
         set -e
-        # Create compressed filesystem in live directory
         sudo mksquashfs catbuntu-root iso/live/filesystem.squashfs -comp xz
         sudo chown $USER:$USER iso/live/filesystem.squashfs
-        
-        # Create ISO
         grub-mkrescue -o catbuntu-from-scratch.iso iso/ -- -volid "CATBUNTU"
           
     - name: Upload Catbuntu ISO
@@ -130,7 +119,5 @@ jobs:
         
     - name: Build success message
       run: |
-        echo "🎉 CATBUNTU FROM SCRATCH BUILT SUCCESSFULLY! 🐾"
-        echo "📦 Final ISO size: $(ls -lh catbuntu-from-scratch.iso | awk '{print $5}')"
-        echo "🐱 Minimal test build - login: catuser / password"
-        echo "📥 Download from Actions artifacts!"
+        echo "🎉 CATBUNTU BUILT! 🐾"
+        echo "Login: catuser / password"
