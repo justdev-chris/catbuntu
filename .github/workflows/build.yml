@@ -38,7 +38,7 @@ jobs:
         
     - name: Setup system and install cat tools
       run: |
-        set -e  # Fail on any error
+        set -e
         sudo chroot ./catbuntu-root /bin/bash << 'EOL'
         set -e
         # Mount necessary filesystems
@@ -46,13 +46,27 @@ jobs:
         mount -t sysfs sys /sys || true
         mount -t devtmpfs dev /dev || true
         
-        # Install our cat packages
+        # FIX: Configure repositories FIRST
+        echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list
+        echo "deb http://archive.ubuntu.com/ubuntu jammy-updates main universe" >> /etc/apt/sources.list
+        
+        # FIX: Update package lists
         apt-get update
+        
+        # FIX: Install essentials first
         apt-get install -y --no-install-recommends \
           sudo \
-          network-manager \
+          software-properties-common \
           curl \
-          wget \
+          wget
+        
+        # FIX: Add universe repo properly and update
+        add-apt-repository universe
+        apt-get update
+        
+        # NOW install the fun packages
+        apt-get install -y --no-install-recommends \
+          network-manager \
           vim-tiny \
           git \
           fish \
