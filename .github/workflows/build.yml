@@ -1,4 +1,3 @@
-# .github/workflows/catbuntu.yml
 name: Build Catbuntu From Scratch
 
 on:
@@ -27,25 +26,29 @@ jobs:
           mtools \
           dosfstools \
           git \
-          isolinux
+          isolinux \
+          genisoimage \
+          live-boot \
+          systemd-container
           
     - name: Build minimal root filesystem
       run: |
         # Create minimal Ubuntu base WITH kernel
-        sudo debootstrap --include=linux-image-generic,initramfs-tools jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
+        sudo debootstrap --include=linux-image-generic,initramfs-tools,systemd-sysv jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
         
     - name: Setup system and install cat tools
       run: |
+        set -e  # Fail on any error
         sudo chroot ./catbuntu-root /bin/bash << 'EOL'
+        set -e
         # Mount necessary filesystems
-        mount -t proc proc /proc
-        mount -t sysfs sys /sys
-        mount -t devtmpfs dev /dev
+        mount -t proc proc /proc || true
+        mount -t sysfs sys /sys || true
+        mount -t devtmpfs dev /dev || true
         
         # Install our cat packages
         apt-get update
         apt-get install -y --no-install-recommends \
-          systemd-sysv \
           sudo \
           network-manager \
           curl \
@@ -103,46 +106,47 @@ jobs:
         rm -rf /var/lib/apt/lists/*
         
         # Unmount
-        umount /proc
-        umount /sys
-        umount /dev
+        umount /proc || true
+        umount /sys || true
+        umount /dev || true
         EOL
         
     - name: Create bootable ISO structure
       run: |
+        set -e
         # Create ISO directory structure
         mkdir -p iso/boot/grub
+        mkdir -p iso/live
         
-        # Find and copy kernel files (with proper permissions)
+        # Find and copy kernel files
         KERNEL_VERSION=$(sudo ls catbuntu-root/boot/vmlinuz-* | head -1 | xargs basename | sed 's/vmlinuz-//')
         echo "Using kernel: $KERNEL_VERSION"
         
-        # Copy files with user ownership
+        # Copy files with proper ownership
         sudo cp catbuntu-root/boot/vmlinuz-$KERNEL_VERSION iso/boot/vmlinuz
         sudo cp catbuntu-root/boot/initrd.img-$KERNEL_VERSION iso/boot/initrd.img
-        
-        # Change ownership to current user
         sudo chown $USER:$USER iso/boot/vmlinuz
         sudo chown $USER:$USER iso/boot/initrd.img
         
-        # Create GRUB config
+        # Create GRUB config for LIVE boot
         cat > iso/boot/grub/grub.cfg << 'EOF'
         set timeout=5
         set default=0
         
-        menuentry "Catbuntu From Scratch" {
-            linux /boot/vmlinuz root=/dev/sr0 quiet splash
+        menuentry "Catbuntu From Scratch - Live" {
+            linux /boot/vmlinuz boot=live components quiet splash
             initrd /boot/initrd.img
         }
         EOF
         
     - name: Create squashfs and ISO
       run: |
-        # Create compressed filesystem (with user permissions)
-        sudo mksquashfs catbuntu-root iso/filesystem.squashfs -comp xz
-        sudo chown $USER:$USER iso/filesystem.squashfs
+        set -e
+        # Create compressed filesystem in live directory
+        sudo mksquashfs catbuntu-root iso/live/filesystem.squashfs -comp xz
+        sudo chown $USER:$USER iso/live/filesystem.squashfs
         
-        # Create ISO using GRUB method (more reliable)
+        # Create ISO
         grub-mkrescue -o catbuntu-from-scratch.iso iso/ -- -volid "CATBUNTU"
           
     - name: Upload Catbuntu ISO
