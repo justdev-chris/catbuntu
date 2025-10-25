@@ -29,13 +29,12 @@ jobs:
           isolinux \
           genisoimage \
           live-boot \
-          live-tools \
           systemd-container
           
     - name: Build minimal root filesystem
       run: |
-        # Create minimal Ubuntu base WITH kernel and live-boot
-        sudo debootstrap --include=linux-image-generic,initramfs-tools,systemd-sysv,live-boot,live-tools jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
+        # Create minimal Ubuntu base WITH kernel (without live-boot)
+        sudo debootstrap --include=linux-image-generic,initramfs-tools,systemd-sysv jammy ./catbuntu-root http://archive.ubuntu.com/ubuntu/
         
     - name: Setup system and cat packages
       run: |
@@ -47,16 +46,17 @@ jobs:
         mount -t sysfs sys /sys || true
         mount -t devtmpfs dev /dev || true
         
-        # Configure repositories
+        # Configure repositories WITH universe
         cat > /etc/apt/sources.list << 'EOF2'
         deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
         deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
         deb http://archive.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
         EOF2
         
-        # Update and install core system
+        # Update and install core system + live-boot FROM UNIVERSE
         apt-get update
         apt-get install -y sudo systemd systemd-sysv netbase ifupdown dbus
+        apt-get install -y --no-install-recommends live-boot live-tools
         
         # Install cat packages - CAREFULLY ordered
         apt-get install -y --no-install-recommends \
@@ -64,7 +64,6 @@ jobs:
           coreutils \
           util-linux \
           udev \
-          dbus \
           network-manager \
           curl \
           wget \
@@ -90,7 +89,7 @@ jobs:
         echo "live-boot" > /etc/hostname
         echo "LIVE_BOOT=1" >> /etc/environment
         
-        # FIX INITRAMFS - add ALL necessary modules
+        # FIX INITRAMFS - add necessary modules
         cat > /etc/initramfs-tools/modules << 'EOF2'
         squashfs
         overlay
@@ -101,42 +100,7 @@ jobs:
         nls_iso8859-1
         vfat
         ext4
-        usb-storage
-        uhci-hcd
-        ohci-hcd
-        ehci-hcd
-        xhci-hcd
         EOF2
-        
-        # Configure live-boot hooks
-        mkdir -p /etc/initramfs-tools/hooks
-        cat > /etc/initramfs-tools/hooks/live << 'EOF2'
-        #!/bin/sh
-        PREREQ=""
-        prereqs()
-        {
-            echo "$PREREQ"
-        }
-        case $1 in
-        prereqs)
-            prereqs
-            exit 0
-            ;;
-        esac
-        
-        . /usr/share/initramfs-tools/hook-functions
-        
-        # Copy live-boot components
-        copy_exec /usr/bin/which
-        copy_exec /bin/date
-        copy_exec /bin/dd
-        copy_exec /bin/grep
-        copy_exec /bin/sed
-        copy_exec /sbin/blkid
-        copy_exec /sbin/mkswap
-        copy_exec /sbin/losetup
-        EOF2
-        chmod +x /etc/initramfs-tools/hooks/live
         
         # Create user
         useradd -m -s /usr/bin/fish catuser
@@ -155,18 +119,13 @@ jobs:
         EOF2
         chmod +x /home/catuser/welcome.sh
         
-        # Update initramfs with verbose output
+        # Update initramfs
         echo "Updating initramfs..."
         update-initramfs -v -u -k all
         
         # Clean up
         apt-get clean
         rm -rf /var/lib/apt/lists/*
-        
-        # Create essential device nodes
-        mknod /dev/console c 5 1 || true
-        mknod /dev/tty1 c 4 1 || true
-        mknod /dev/null c 1 3 || true
         
         # Unmount
         umount /proc || true
@@ -188,18 +147,13 @@ jobs:
         sudo chown $USER:$USER iso/boot/vmlinuz
         sudo chown $USER:$USER iso/boot/initrd.img
         
-        # IMPROVED GRUB config with better kernel params
+        # GRUB config with live-boot parameters
         cat > iso/boot/grub/grub.cfg << 'EOF'
         set timeout=5
         set default=0
         
         menuentry "Catbuntu From Scratch - Live" {
-            linux /boot/vmlinuz boot=live components toram ignore_uuid debug nosplash console=tty1 console=ttyS0
-            initrd /boot/initrd.img
-        }
-        
-        menuentry "Catbuntu - Safe Mode" {
-            linux /boot/vmlinuz boot=live components nomodeset ignore_uuid debug systemd.log_level=debug systemd.log_target=console
+            linux /boot/vmlinuz boot=live components toram ignore_uuid debug nosplash console=tty1
             initrd /boot/initrd.img
         }
         EOF
@@ -209,10 +163,6 @@ jobs:
         set -e
         sudo mksquashfs catbuntu-root iso/live/filesystem.squashfs -comp xz
         sudo chown $USER:$USER iso/live/filesystem.squashfs
-        
-        # Copy live-boot config
-        sudo mkdir -p iso/live
-        sudo cp -r catbuntu-root/usr/lib/live iso/live/ || true
         
         grub-mkrescue -o catbuntu-from-scratch.iso iso/ -- -volid "CATBUNTU"
           
@@ -225,8 +175,8 @@ jobs:
         
     - name: Build success message
       run: |
-        echo "🎉 CATBUNTU WITH CAT PACKAGES BUILT! 🐾"
+        echo "🎉 CATBUNTU WITH LIVE-BOOT BUILT! 🐾"
         echo "📦 ISO size: $(ls -lh catbuntu-from-scratch.iso | awk '{print $5}')"
         echo "🐱 All cat packages included!"
-        echo "🔧 Try both boot entries if one fails"
+        echo "🔧 Proper live-boot configuration"
         echo "📥 Download from Actions artifacts!"
