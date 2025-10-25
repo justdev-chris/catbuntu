@@ -88,29 +88,7 @@ jobs:
         usermod -aG sudo catuser
         echo "catbuntu" > /etc/hostname
         
-        # Set up auto-login on tty1
-        mkdir -p /etc/systemd/system/getty@tty1.service.d/
-        cat > /etc/systemd/system/getty@tty1.service.d/override.conf << 'EOF2'
-        [Service]
-        ExecStart=
-        ExecStart=-/sbin/agetty --autologin catuser --noclear %I $TERM
-        EOF2
-        
-        # Create welcome script
-        cat > /etc/profile.d/catbuntu-welcome.sh << 'EOF2'
-        #!/bin/bash
-        if [ "$(tty)" = "/dev/tty1" ]; then
-          clear
-          echo "🐱 WELCOME TO CATBUNTU! 🐱" | lolcat
-          echo "The purr-fect terminal-only distro!" | cowsay -f cat | lolcat
-          echo ""
-          echo "Try: neofetch, cmatrix, nyancat, oneko, sl"
-          echo "Shell: fish (type 'fish' to start)"
-          echo ""
-          exec fish
-        fi
-        EOF2
-        chmod +x /etc/profile.d/catbuntu-welcome.sh
+        # REMOVED AUTO-LOGIN - just normal login now
         
         # Update initramfs
         update-initramfs -u -k all
@@ -177,7 +155,6 @@ jobs:
         echo "🐱 Features:"
         echo "  - Built from debootstrap"
         echo "  - Custom kernel"
-        echo "  - Auto-login to fish shell"
         echo "  - All cat-themed commands"
-        echo "  - Purr-fect terminal experience!"
+        echo "  - Login: catuser / password"
         echo "📥 Download from Actions artifacts!"
